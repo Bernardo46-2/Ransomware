@@ -5,12 +5,10 @@ const server = express();
 
 const obj = {};
 const KEY_BYTES = [190, 4, 130, 95, 129, 89, 39, 29,
-                   80, 181, 156, 93, 58, 238, 87, 146, 
-                   117, 228, 217, 201, 26, 76, 14, 60, 
+                   80, 181, 156, 93, 58, 238, 87, 146,
+                   117, 228, 217, 201, 26, 76, 14, 60,
                    145, 18, 113, 242, 79, 157, 132, 116];
                    
-                   
-const parseInputKey = key => key.split(' ').map(e => parseInt(e));
 
 const hexToBytes = hex => {
     let bytes = [];
@@ -20,12 +18,13 @@ const hexToBytes = hex => {
     
     return bytes;
 }
-
-const parseOutputKey = key => hexToBytes(key).join(" ");
+                   
+const parseInputKey = key => key.split(' ').map(e => parseInt(e));
+const parseOutputKey = key => hexToBytes(key).join(' ');
 
 const aes256gcm = key => {
     const decrypt = enc => {
-        enc = Buffer.from(enc, "base64");
+        enc = Buffer.from(enc, 'base64');
         const iv = Buffer.from(enc.subarray(enc.length - 12));
         enc = enc.subarray(0, enc.length - 12);
 
@@ -46,15 +45,21 @@ const aes256gcm = key => {
 
 const cipher = aes256gcm(Buffer.from(KEY_BYTES));
 
+const printKeys = keys => {
+    for([t, k] of Object.entries(keys))
+        console.log(`${t}: ${cipher.decrypt(parseInputKey(k))}`);
+    console.log();
+}
+
 server.get('/get', (req, res) => {
     const token = req.query.token;
     const key = req.query.key;
 
-    obj[token] = cipher.decrypt(parseInputKey(key));
-    console.log(obj);
-
-    // fs.writeFileSync('test.txt', obj[token]);
-
+    obj[token] = key;
+    
+    printKeys(obj);
+    // fs.writeFileSync('key.txt', cipher.decrypt(parseInputKey(obj[token])));
+    
     return res.end("ok");
 });
 
