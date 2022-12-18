@@ -4,21 +4,22 @@ mod virus;
 mod req;
 
 fn get_args() -> ArgMatches{
-    Command::new("")
+    Command::new("Ransomware")
+        .arg(Arg::new("task")
+            .required(true)
+            .help("task to be performed. [run | restore]"))
         .arg(Arg::new("dir")
             .short('d')
             .long("dir")
             .required(false)
-            .default_value("../test"))
+            .default_value("./test")
+            .help("Target directory."))
         .arg(Arg::new("key")
             .short('k')
             .long("key")
             .required(false)
-            .default_value("key.txt"))
-        .arg(Arg::new("task")
-            .short('t')
-            .long("task")
-            .required(false))
+            .default_value("key.txt")
+            .help("Key directory."))
         .get_matches()
 }
 
