@@ -6,10 +6,10 @@ A ransomware made in rust (just for fun)
 - Then run the virus with the action you wanna do as the argument (either `run` or `restore`)
 - Since cargo has its own arguments, the line to pass the arguments to the program itself would look something like `cargo run -- run` or `cargo run -- restore`
 
-### The run command
+### Run
 The run command takes a target directory to encrypt (the default being './test') and, if the server is running, encrypts the files in the folder recursively and sends the encryption key to the server. The key will be printed on the screen by the server and needs to be stored in order to get the files back.
 
-### The restore command
+### Restore
 The restore command takes the directory of the file where the key is stored (default being 'key.txt') and a target directory(default './test') and decrypts the files recursively in the target directory.
 
 ## Notes
